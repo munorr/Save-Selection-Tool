@@ -71,9 +71,10 @@ class SelectSetToolWindow(QtWidgets.QWidget):
         self.setAttribute(QtCore.Qt.WA_TranslucentBackground)
         self.setAttribute(QtCore.Qt.WA_NoSystemBackground)
         self.setStyleSheet('''QWidget {background-color: rgba(0, 0, 0, 0);}
-                            QDialog, QMessageBox {background-color: #3a3a3a ;color: #222222;}
-                            QLabel {color: #ffffff;}QLineEdit {background-color: #3c3c3c;color: #ffffff;border: 1px solid #555555; padding: 2px;}
-                            QPushButton {background-color: #4d4d4d;color: white;border-radius: 3px;padding: 5px;}
+                            QDialog, QMessageBox {background-color: #444444 ;color: #222222;}
+                            QLabel {color: #ffffff;}
+                            QLineEdit {background-color: #333333;color: #ffffff;border: 0px solid #555555; padding: 2px;}
+                            QPushButton {background-color: #333333;color: white;border-radius: 3px;padding: 5px;}
                             QPushButton:hover {background-color: #5a5a5a;}''')
 
         self.setup_ui()
@@ -216,6 +217,11 @@ class SelectSetToolWindow(QtWidgets.QWidget):
             self.fade_animation.start()
 
     # Core Functionality        
+    def calculate_button_width(self, text, padding=20):
+        font_metrics = QtGui.QFontMetrics(self.font())
+        text_width = font_metrics.horizontalAdvance(text)
+        return text_width + padding
+    
     def add_selection_button(self, selection_name):
         button = DraggableButton(selection_name)
         button.clicked.connect(lambda: self.select_objects(selection_name))
@@ -289,17 +295,67 @@ class SelectSetToolWindow(QtWidgets.QWidget):
             self.delete_selection_button(button)
 
     def rename_selection_button(self, button):
-        new_name, ok = QtWidgets.QInputDialog.getText(self, "Rename Selection", "Enter new name:", text=button.text())
-        if ok and new_name:
-            old_name = button.text()
-            self.rename_selection(old_name, new_name)
-            button.setText(new_name)
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Rename Selection")
+        dialog.setFixedSize(200, 100)
+
+        layout = QtWidgets.QVBoxLayout(dialog)
+        
+        input_field = QtWidgets.QLineEdit(button.text())
+        layout.addWidget(QtWidgets.QLabel("Enter new name:"))
+        layout.addWidget(input_field)
+        
+        button_layout = QtWidgets.QHBoxLayout()
+        apply_button = QtWidgets.QPushButton("Apply")
+        close_button = QtWidgets.QPushButton("Close")
+
+        button_layout.addWidget(apply_button)
+        button_layout.addWidget(close_button)
+        layout.addLayout(button_layout)
+        
+        apply_button.clicked.connect(dialog.accept)
+        close_button.clicked.connect(dialog.reject)
+        
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            new_name = input_field.text()
+            if new_name and new_name != button.text():
+                old_name = button.text()
+            
+                # Disconnect the old connection
+                button.clicked.disconnect()
+                
+                self.rename_selection(old_name, new_name)
+                button.setText(new_name)
+                
+                # Reconnect with the new name
+                button.clicked.connect(lambda: self.select_objects(new_name))
+                
+                # Recalculate and set the new width of the button
+                new_width = button.calculate_button_width(new_name)
+                button.setFixedWidth(new_width)
 
     def delete_selection_button(self, button):
-        confirm_delete = QtWidgets.QMessageBox.question(
-            self, "Delete Confirmation", f"Are you sure you want to delete '{button.text()}'?",
-            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.No)
-        if confirm_delete == QtWidgets.QMessageBox.Yes:
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Delete Confirmation")
+        dialog.setFixedSize(200, 100)
+
+        layout = QtWidgets.QVBoxLayout(dialog)
+        
+        layout.addWidget(QtWidgets.QLabel("Are you sure you want to delete"))
+        layout.addWidget(QtWidgets.QLabel(f"<div align='center'><b>{button.text()}?</b></div>"))
+        
+        button_layout = QtWidgets.QHBoxLayout()
+        apply_button = QtWidgets.QPushButton("Apply")
+        close_button = QtWidgets.QPushButton("Close")
+
+        button_layout.addWidget(apply_button)
+        button_layout.addWidget(close_button)
+        layout.addLayout(button_layout)
+        
+        apply_button.clicked.connect(dialog.accept)
+        close_button.clicked.connect(dialog.reject)
+        
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
             self.delete_selection(button.text())
 
     # Database operations
@@ -313,25 +369,47 @@ class SelectSetToolWindow(QtWidgets.QWidget):
         return json.loads(data) if data else {}
 
     def save_selection(self):
-        selection_name, ok = QtWidgets.QInputDialog.getText(self, "Save Selection", "Enter selection name:")
-        if not ok or not selection_name:
-            return
-        current_selection = cmds.ls(selection=True, long=True)
-        if not current_selection:
-            cmds.warning("No objects selected.")
-            return
-        selection_dict = self.get_selection_dict()
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Save Selection")
+        dialog.setFixedSize(200, 100)
+
+        layout = QtWidgets.QVBoxLayout(dialog)
         
-        # Ensure unique name
-        base_name = selection_name
-        counter = 1
-        while selection_name in selection_dict:
-            selection_name = f"{base_name}_{counter}"
-            counter += 1
+        input_field = QtWidgets.QLineEdit()
+        layout.addWidget(QtWidgets.QLabel("Enter selection name:"))
+        layout.addWidget(input_field)
         
-        selection_dict[selection_name] = current_selection
-        self.save_selection_dict(selection_dict)
-        self.add_selection_button(selection_name)
+        button_layout = QtWidgets.QHBoxLayout()
+        apply_button = QtWidgets.QPushButton("Apply")
+        close_button = QtWidgets.QPushButton("Close")
+        
+        button_layout.addWidget(apply_button)
+        button_layout.addWidget(close_button)
+        layout.addLayout(button_layout)
+        
+        apply_button.clicked.connect(dialog.accept)
+        close_button.clicked.connect(dialog.reject)
+        
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            selection_name = input_field.text()
+            if selection_name:
+                current_selection = cmds.ls(selection=True, long=True)
+                if not current_selection:
+                    cmds.warning("No objects selected.")
+                    return
+                
+                selection_dict = self.get_selection_dict()
+                
+                # Ensure unique name
+                base_name = selection_name
+                counter = 1
+                while selection_name in selection_dict:
+                    selection_name = f"{base_name}_{counter}"
+                    counter += 1
+                
+                selection_dict[selection_name] = current_selection
+                self.save_selection_dict(selection_dict)
+                self.add_selection_button(selection_name)
 
     def select_objects(self, selection_name):
         selection_dict = self.get_selection_dict()
@@ -350,6 +428,7 @@ class SelectSetToolWindow(QtWidgets.QWidget):
         if old_name in selection_dict:
             selection_dict[new_name] = selection_dict.pop(old_name)
             self.save_selection_dict(selection_dict)
+            #self.update_database_order() 
         else:
             cmds.warning(f"Selection '{old_name}' not found.")
 
@@ -429,7 +508,6 @@ def show_select_set_tool():
     maya_main_window().activateWindow()
 
 show_select_set_tool()
-
 """
     gShelfTopLevel = mel.eval("$tmpVar=$gShelfTopLevel")
     if gShelfTopLevel:

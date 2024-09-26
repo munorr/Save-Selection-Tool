@@ -45,6 +45,7 @@ class DraggableButton(QtWidgets.QPushButton):
         if event.button() == QtCore.Qt.MiddleButton:
             self.drag_start_position = event.pos()
         super(DraggableButton, self).mousePressEvent(event)
+        
 
     def mouseMoveEvent(self, event):
         if event.buttons() & QtCore.Qt.MiddleButton:
@@ -55,6 +56,12 @@ class DraggableButton(QtWidgets.QPushButton):
             mime_data.setText(self.text())
             drag.setMimeData(mime_data)
             drag.exec_(QtCore.Qt.MoveAction)
+
+class ColorButton(QtWidgets.QPushButton):
+    def __init__(self, color, parent=None):
+        super(ColorButton, self).__init__(parent)
+        self.setFixedSize(20, 20)
+        self.setStyleSheet(f"background-color: {color}; border: none; border-radius: 3px;")
 
 class SelectSetToolWindow(QtWidgets.QWidget):
     def __init__(self, parent=None):
@@ -72,6 +79,11 @@ class SelectSetToolWindow(QtWidgets.QWidget):
         self.setup_ui()
         self.setup_connections()
         self.populate_existing_selections()
+
+        self.color_palette = [
+            "#4d4d4d", "#d58c09", "#16aaa6", "#9416ca",
+            "#873b75", "#6c9809", "#293f64", "#cf2222"
+        ]
         
         # Set initial opacity
         self.setWindowOpacity(1)
@@ -89,7 +101,6 @@ class SelectSetToolWindow(QtWidgets.QWidget):
         self.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_frame_context_menu)
         self.fade_away_enabled = False
-
 
     def setup_ui(self):
         # Main layout setup
@@ -216,9 +227,17 @@ class SelectSetToolWindow(QtWidgets.QWidget):
     
     def add_selection_button(self, selection_name):
         button = DraggableButton(selection_name)
-        button.clicked.connect(lambda: self.select_objects(selection_name))
+        button.clicked.connect(lambda: self.select_objects(selection_name, QtWidgets.QApplication.keyboardModifiers()))
         button.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         button.customContextMenuRequested.connect(lambda pos, btn=button: self.show_context_menu(pos, btn))
+        
+        # Set color if it exists in the database
+        selection_dict = self.get_selection_dict()
+        if selection_name in selection_dict and 'color' in selection_dict[selection_name]:
+            color = selection_dict[selection_name]['color']
+            if color:
+                self.set_button_color(button, color)
+        
         self.selectionButtonsLayout.addWidget(button)
 
     def show_frame_context_menu(self, pos):
@@ -280,11 +299,66 @@ class SelectSetToolWindow(QtWidgets.QWidget):
         
         rename_action = menu.addAction("Rename")
         delete_action = menu.addAction("Delete")
+        
+        # Add color selection submenu
+        color_menu = QtWidgets.QMenu("Color")
+        color_menu.setWindowFlags(menu.windowFlags() | QtCore.Qt.FramelessWindowHint | QtCore.Qt.NoDropShadowWindowHint)
+        color_menu.setAttribute(QtCore.Qt.WA_TranslucentBackground)
+        color_menu.setStyleSheet(menu.styleSheet())
+        menu.addMenu(color_menu)
+        
+        color_widget = QtWidgets.QWidget()
+        color_layout = QtWidgets.QGridLayout(color_widget)
+        color_layout.setSpacing(5)
+        color_layout.setContentsMargins(3,5,3,5)
+        
+        for i, color in enumerate(self.color_palette):
+            color_button = ColorButton(color)
+            color_button.clicked.connect(lambda c=color, b=button: self.set_button_color(b, c))
+            color_layout.addWidget(color_button, i // 4, i % 4)
+        
+        color_action = QtWidgets.QWidgetAction(color_menu)
+        color_action.setDefaultWidget(color_widget)
+        color_menu.addAction(color_action)
+        
         action = menu.exec_(button.mapToGlobal(pos))
         if action == rename_action:
             self.rename_selection_button(button)
         elif action == delete_action:
             self.delete_selection_button(button)
+
+    def set_button_color(self, button, color):
+        button.setStyleSheet(f'''
+            QPushButton {{
+                background-color: {color};
+                color: white;
+                border-radius: 3px;
+                padding: 5px;
+            }}
+            QPushButton:hover {{
+                background-color: {self.lighten_color(color)};
+            }}
+        ''')
+        self.update_selection_color(button.text(), color)
+
+    def lighten_color(self, color, factor=1.2):
+        c = QColor(color)
+        h, s, l, a = c.getHsl()
+        l = min(int(l * factor), 255)
+        c.setHsl(h, s, l, a)
+        return c.name()
+    
+    def update_selection_color(self, selection_name, color):
+        selection_dict = self.get_selection_dict()
+        if selection_name in selection_dict:
+            if isinstance(selection_dict[selection_name], dict):
+                selection_dict[selection_name]['color'] = color
+            else:
+                selection_dict[selection_name] = {
+                    'objects': selection_dict[selection_name],
+                    'color': color
+                }
+            self.save_selection_dict(selection_dict)
 
     def rename_selection_button(self, button):
         dialog = QtWidgets.QDialog(self)
@@ -308,6 +382,8 @@ class SelectSetToolWindow(QtWidgets.QWidget):
         apply_button.clicked.connect(dialog.accept)
         close_button.clicked.connect(dialog.reject)
         
+        input_field.returnPressed.connect(dialog.accept)
+
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
             new_name = input_field.text()
             if new_name and new_name != button.text():
@@ -347,19 +423,15 @@ class SelectSetToolWindow(QtWidgets.QWidget):
         apply_button.clicked.connect(dialog.accept)
         close_button.clicked.connect(dialog.reject)
         
+        dialog.setFocus()  # Set focus to the dialog so it can receive key events
+        dialog.keyPressEvent = lambda e: dialog.accept() if e.key() == QtCore.Qt.Key_Return else super(QtWidgets.QDialog, dialog).keyPressEvent(e)
+
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
             self.delete_selection(button.text())
+            self.selectionButtonsLayout.removeWidget(button)
+            button.deleteLater()
 
     # Database operations
-    def get_selection_dict(self):
-        if not cmds.objExists('defaultObjectSet'):
-            cmds.createNode('objectSet', name='defaultObjectSet')
-        if not cmds.attributeQuery('selectToolData', node='defaultObjectSet', exists=True):
-            cmds.addAttr('defaultObjectSet', longName='selectToolData', dataType='string')
-            return {}
-        data = cmds.getAttr('defaultObjectSet.selectToolData')
-        return json.loads(data) if data else {}
-
     def save_selection(self):
         dialog = QtWidgets.QDialog(self)
         dialog.setWindowTitle("Save Selection")
@@ -382,6 +454,8 @@ class SelectSetToolWindow(QtWidgets.QWidget):
         apply_button.clicked.connect(dialog.accept)
         close_button.clicked.connect(dialog.reject)
         
+        input_field.returnPressed.connect(dialog.accept)
+
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
             selection_name = input_field.text()
             if selection_name:
@@ -403,12 +477,17 @@ class SelectSetToolWindow(QtWidgets.QWidget):
                 self.save_selection_dict(selection_dict)
                 self.add_selection_button(selection_name)
 
-    def select_objects(self, selection_name):
+    def select_objects(self, selection_name, modifiers):
         selection_dict = self.get_selection_dict()
         if selection_name in selection_dict:
-            objects = selection_dict[selection_name]
+            objects = selection_dict[selection_name]['objects']
             if isinstance(objects, list):
-                cmds.select(objects, replace=True)
+                if modifiers == QtCore.Qt.ShiftModifier:
+                    # Add to current selection
+                    cmds.select(objects, add=True)
+                else:
+                    # Replace current selection
+                    cmds.select(objects, replace=True)
             else:
                 cmds.warning(f"Invalid data for selection '{selection_name}'.")
         else:
@@ -453,10 +532,13 @@ class SelectSetToolWindow(QtWidgets.QWidget):
                 # Flatten nested dictionaries
                 flattened_dict = {}
                 for key, value in ordered_dict.items():
-                    if isinstance(value, dict) and 'objects' in value:
-                        flattened_dict[key] = value['objects']
+                    if isinstance(value, dict):
+                        if 'objects' in value:
+                            flattened_dict[key] = value
+                        else:
+                            flattened_dict[key] = {'objects': value, 'color': None}
                     else:
-                        flattened_dict[key] = value
+                        flattened_dict[key] = {'objects': value, 'color': None}
                 return flattened_dict
             except json.JSONDecodeError:
                 cmds.warning("Invalid data in selectToolData. Resetting.")
@@ -464,7 +546,8 @@ class SelectSetToolWindow(QtWidgets.QWidget):
         return {}
 
     def save_selection_dict(self, selection_dict):
-        ordered_dict = {key: {'order': i, 'objects': value} for i, (key, value) in enumerate(selection_dict.items())}
+        ordered_dict = {key: {'order': i, 'objects': value['objects'], 'color': value.get('color')} 
+                        for i, (key, value) in enumerate(selection_dict.items())}
         cmds.setAttr('defaultObjectSet.selectToolData', json.dumps(ordered_dict), type='string')
 
     def update_database_order(self):

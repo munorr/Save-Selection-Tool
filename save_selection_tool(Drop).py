@@ -6,6 +6,8 @@ from shiboken2 import wrapInstance
 
 def create_save_selection_tool_button():
     button_command ="""
+# Made By Nnamdi Echiemunor (munorr.3d)
+
 import maya.cmds as cmds
 from maya import OpenMayaUI as omui
 
@@ -46,7 +48,7 @@ class CustomDialog(QtWidgets.QDialog):
             QLabel, QRadioButton {
                 color: white;
             }
-            QLineEdit, QComboBox {
+            QLineEdit {
                 background-color: #4d4d4d;
                 color: white;
                 border: none;
@@ -70,6 +72,11 @@ class CustomDialog(QtWidgets.QDialog):
             }
             QPushButton#closeButton:hover {
                 background-color: #ff0000;
+            }
+            QComboBox {
+                background-color: #444444;
+                color: white;
+                padding: 5px;
             }
         ''')
         self.layout = QtWidgets.QVBoxLayout(self)
@@ -145,7 +152,7 @@ class TabButton(QtWidgets.QPushButton):
         super(TabButton, self).__init__(text, parent)
         self.tab_name = text
         self.setStyleSheet('''
-        QPushButton {background-color: #4d4d4d;color: white;border-radius: 8px;padding: 1px;}
+        QPushButton {background-color: #4d4d4d;color: white;border-radius: 8px;padding: 1px; font-size: 10px;}
         QPushButton:hover {background-color: #5a5a5a;}
         QToolTip {background-color: #5285a6;color: white;border: 0px;}
         ''')
@@ -293,9 +300,12 @@ class SelectSetToolWindow(QtWidgets.QWidget):
 
     def show_save_button_context_menu(self, pos):
         menu = QtWidgets.QMenu(self)
+        menu = QtWidgets.QMenu()
+        menu.setWindowFlags(menu.windowFlags() | QtCore.Qt.FramelessWindowHint | QtCore.Qt.NoDropShadowWindowHint)
+        menu.setAttribute(QtCore.Qt.WA_TranslucentBackground)
         menu.setStyleSheet('''
             QMenu {
-                background-color: rgba(30, 30, 30, .7);
+                background-color: rgba(30, 30, 30, .9);
                 border-radius: 3px;
                 padding: 0px 3px 0px 3px;
             }
@@ -307,8 +317,7 @@ class SelectSetToolWindow(QtWidgets.QWidget):
             }
             QMenu::item:selected {
                 background-color: #00ade6;
-            }
-        ''')
+            }''')
 
         store_action = menu.addAction("Store Selection Data")
         load_action = menu.addAction("Load Selection Data")
@@ -350,7 +359,7 @@ class SelectSetToolWindow(QtWidgets.QWidget):
                     current_data = self.get_selection_dict()
                     new_data = self.merge_selection_data(current_data, loaded_data)
                     self.save_selection_dict(new_data)
-
+                
                 self.refresh_ui()
                 cmds.inViewMessage(amg="Selection data loaded successfully", pos='midCenter', fade=True)
 
@@ -378,23 +387,32 @@ class SelectSetToolWindow(QtWidgets.QWidget):
         self.update_selection_buttons()
 
     def merge_selection_data(self, current_data, new_data):
-        merged_data = {'selections': current_data['selections'].copy(), 'tabs': current_data['tabs'].copy()}
+        merged_data = current_data.copy()
 
-        # Merge selections with '_new' suffix
-        for name, selection in new_data['selections'].items():
-            new_name = f"{name}_new"
-            merged_data['selections'][new_name] = selection
-
-        # Merge tabs with '_new' suffix
-        for tab, selections in new_data['tabs'].items():
-            new_tab_name = f"{tab}_new"
-            if new_tab_name not in merged_data['tabs']:
-                merged_data['tabs'][new_tab_name] = []
-            for name in selections:
-                new_name = f"{name}_new"
-                merged_data['tabs'][new_tab_name].append(new_name)
+        for tab_name, selections in new_data.items():
+            new_tab_name = tab_name
+            while new_tab_name in merged_data:
+                new_tab_name += "_new"
+            
+            if new_tab_name not in merged_data:
+                merged_data[new_tab_name] = {}
+            
+            for selection_name, selection_data in selections.items():
+                new_selection_name = selection_name
+                counter = 1
+                while self.selection_exists(merged_data, new_selection_name):
+                    if counter == 1:
+                        new_selection_name = f"{selection_name}_{counter}"
+                    else:
+                        new_selection_name = f"{selection_name}_{counter:02d}"
+                    counter += 1
+                
+                merged_data[new_tab_name][new_selection_name] = selection_data
 
         return merged_data
+
+    def selection_exists(self, data, name):
+        return any(name in tab_data for tab_data in data.values())
 
     def get_unique_name(self, name, existing_selections):
         unique_name = name
@@ -404,20 +422,17 @@ class SelectSetToolWindow(QtWidgets.QWidget):
             counter += 1
         return unique_name
 
-    def create_selection_button(self, selection_name):
+    def create_selection_button(self, selection_name, selection_data):
         button = DraggableButton(selection_name)
         button.clicked.connect(lambda: self.select_objects(selection_name, QtWidgets.QApplication.keyboardModifiers()))
         button.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         button.customContextMenuRequested.connect(lambda pos, btn=button: self.show_context_menu(pos, btn))
-
+        
         # Set tooltip and color
         button.setToolTip(f"Select {selection_name} set")
-        selection_dict = self.get_selection_dict()
-        if selection_name in selection_dict['selections'] and 'color' in selection_dict['selections'][selection_name]:
-            color = selection_dict['selections'][selection_name]['color']
-            if color:
-                self.set_button_color(button, color)
-
+        if 'color' in selection_data:
+            self.set_button_color(button, selection_data['color'])
+        
         return button
 
     def setup_close_button(self, layout):
@@ -440,7 +455,7 @@ class SelectSetToolWindow(QtWidgets.QWidget):
         self.frame.mouseMoveEvent = self.mouseMoveEvent
         self.setAcceptDrops(True)
 
-    # Event handlers
+    # [Event Handlers]
     def mousePressEvent(self, event):
         if event.button() == QtCore.Qt.LeftButton:
             self.oldPos = event.globalPos()
@@ -502,7 +517,7 @@ class SelectSetToolWindow(QtWidgets.QWidget):
             self.fade_animation.setEndValue(0.1)
             self.fade_animation.start()
 
-    # Tab Functionality 
+    # [Tab Functionality] 
     def initialize_first_tab(self):
         if not self.tabs:
             first_tab_name = "1"
@@ -520,27 +535,46 @@ class SelectSetToolWindow(QtWidgets.QWidget):
                 selection_dict['tabs'][first_tab_name] = []
             self.save_selection_dict(selection_dict)
 
-    def add_tab(self, tab_name):
+    def add_tab(self, tab_name, switch=False):
         selection_dict = self.get_selection_dict()
+        
+        # If there are no tabs, use the given tab_name (usually "1")
+        if not self.tabs:
+            pass
         # Check if the tab name already exists
-        if tab_name in self.tabs:
+        elif tab_name in self.tabs:
             # If it exists, generate a unique name
             counter = 1
             while f"{tab_name}_{counter}" in self.tabs:
                 counter += 1
             tab_name = f"{tab_name}_{counter}"
-
+        
+        # Create a new tab button
         tab_button = TabButton(tab_name)
         tab_button.tab_clicked.connect(self.switch_tab)
         tab_button.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         tab_button.customContextMenuRequested.connect(self.on_tab_context_menu_requested)
-        self.tabLayout.insertWidget(self.tabLayout.count() - 1, tab_button)
-        self.tabs[tab_name] = []
+        tab_button.setFixedWidth(tab_button.calculate_button_width(tab_name))
 
-        if tab_name not in selection_dict['tabs']:
-            selection_dict['tabs'][tab_name] = []
+        # Insert the new tab button in the layout
+        self.tabLayout.insertWidget(self.tabLayout.count() - 1, tab_button)
+        
+        # Initialize the tab in the tabs dictionary
+        self.tabs[tab_name] = []
+        
+        # Add the new tab to the selection dictionary
+        if tab_name not in selection_dict:
+            selection_dict[tab_name] = {}
+        
+        # Save the updated selection dictionary
         self.save_selection_dict(selection_dict)
-        self.switch_tab(tab_name)
+        
+        # Switch to the newly created tab if switch is True
+        if switch:
+            self.switch_tab(tab_name)
+        
+        
+        return tab_name
 
     def add_new_tab(self):
         dialog = CustomDialog(self, "New Tab", (180, 100))
@@ -573,12 +607,11 @@ class SelectSetToolWindow(QtWidgets.QWidget):
                     new_name = f"{new_name}_{counter}"
 
                 selection_dict = self.get_selection_dict()
-                selection_dict['tabs'][new_name] = selection_dict['tabs'].pop(old_name)
+                selection_dict[new_name] = selection_dict.pop(old_name)
                 self.save_selection_dict(selection_dict)
 
                 # Update the tabs dictionary
                 self.tabs[new_name] = self.tabs.pop(old_name)
-
                 if self.current_tab == old_name:
                     self.current_tab = new_name
 
@@ -600,20 +633,22 @@ class SelectSetToolWindow(QtWidgets.QWidget):
             return
 
         dialog = CustomDialog(self, "Delete Tab", (200, 160))
-        dialog.add_widget(QtWidgets.QLabel(f"Delete tab '{tab_name}'?"))
+        dialog.add_widget(QtWidgets.QLabel(f"Delete tab <b><font color='#00ade6'>{tab_name}</font></b>?"))
         delete_option = QtWidgets.QRadioButton("Delete tab and all buttons")
         move_option = QtWidgets.QRadioButton("Move buttons to another tab")
         delete_option.setChecked(True)
         dialog.add_widget(delete_option)
         dialog.add_widget(move_option)
-
         tab_combo = QtWidgets.QComboBox()
+        view = tab_combo.view()
+        view.setSpacing(4)
+        tab_combo.setFixedHeight(28) 
+         
         for name in self.tabs.keys():
             if name != tab_name:
                 tab_combo.addItem(name)
         dialog.add_widget(tab_combo)
         tab_combo.setVisible(False)
-
         accept_button, _ = dialog.add_button_box()
 
         def toggle_combo_visibility():
@@ -626,19 +661,19 @@ class SelectSetToolWindow(QtWidgets.QWidget):
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
             selection_dict = self.get_selection_dict()
             if delete_option.isChecked():
-                del selection_dict['tabs'][tab_name]
+                del selection_dict[tab_name]
                 del self.tabs[tab_name]
             else:
                 target_tab = tab_combo.currentText()
-                selection_dict['tabs'][target_tab].extend(selection_dict['tabs'][tab_name])
-                del selection_dict['tabs'][tab_name]
+                selection_dict[target_tab].update(selection_dict[tab_name])
+                del selection_dict[tab_name]
                 self.tabs[target_tab].extend(self.tabs[tab_name])
                 del self.tabs[tab_name]
-
+            
             self.save_selection_dict(selection_dict)
             self.tabLayout.removeWidget(button)
             button.deleteLater()
-
+            
             if self.current_tab == tab_name:
                 new_current_tab = next(iter(self.tabs))
                 self.switch_tab(new_current_tab)
@@ -735,20 +770,20 @@ class SelectSetToolWindow(QtWidgets.QWidget):
     def move_tab(self, old_index, new_index):
         tab_names = list(self.tabs.keys())
         tab_name = tab_names[old_index]
-
+        
         # Update the tabs dictionary
         tab_names.insert(new_index, tab_names.pop(old_index))
         self.tabs = {name: self.tabs[name] for name in tab_names}
-
+        
         # Update the database
         selection_dict = self.get_selection_dict()
-        selection_dict['tabs'] = {name: selection_dict['tabs'][name] for name in tab_names}
+        selection_dict = {name: selection_dict[name] for name in tab_names if name in selection_dict}
         self.save_selection_dict(selection_dict)
-
+        
         # Update the current_tab if it was moved
         if self.current_tab == tab_name:
             self.current_tab = tab_name
-
+        
         # Update the UI
         self.update_tab_buttons()
     #----------------------------------------------------------------------------------------------------
@@ -796,48 +831,39 @@ class SelectSetToolWindow(QtWidgets.QWidget):
     def move_button_to_tab(self, button, new_tab):
         selection_name = button.text()
         old_tab = self.current_tab
-
+        
         # Update the selection_dict
         selection_dict = self.get_selection_dict()
-        selection_dict['tabs'][old_tab].remove(selection_name)
-        selection_dict['tabs'][new_tab].append(selection_name)
+        selection_data = selection_dict[old_tab].pop(selection_name)
+        selection_dict[new_tab][selection_name] = selection_data
         self.save_selection_dict(selection_dict)
-
+        
         # Update the self.tabs dictionary
         self.tabs[old_tab].remove(button)
         self.tabs[new_tab].append(button)
-
+        
         # Update the UI
         self.selectionButtonsLayout.removeWidget(button)
         button.setParent(None)
         self.update_selection_buttons()
 
-        # Show a message to confirm the move
-        #cmds.inViewMessage(amg=f"Moved '{selection_name}' to tab '{new_tab}'", pos='midCenter', fade=True)
-
-    # Select Button Functionality        
+    # [Select Button Functionality]        
     def calculate_button_width(self, text, padding=20):
         font_metrics = QtGui.QFontMetrics(self.font())
         text_width = font_metrics.horizontalAdvance(text)
         return text_width + padding
     
     def add_selection_button(self, selection_name):
-        button = DraggableButton(selection_name)
-        button.clicked.connect(lambda: self.select_objects(selection_name, QtWidgets.QApplication.keyboardModifiers()))
-        button.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        button.customContextMenuRequested.connect(lambda pos, btn=button: self.show_context_menu(pos, btn))
-
-        # Set tooltip and color
-        button.setToolTip(f"Select {selection_name} set")
         selection_dict = self.get_selection_dict()
-        if selection_name in selection_dict['selections'] and 'color' in selection_dict['selections'][selection_name]:
-            color = selection_dict['selections'][selection_name]['color']
-            if color:
-                self.set_button_color(button, color)
-
-        # Add button to current tab
-        self.tabs[self.current_tab].append(button)
-        self.update_selection_buttons()
+        current_tab = self.current_tab
+        
+        if current_tab in selection_dict and selection_name in selection_dict[current_tab]:
+            selection_data = selection_dict[current_tab][selection_name]
+            button = self.create_selection_button(selection_name, selection_data)
+            self.tabs[current_tab].append(button)
+            self.update_selection_buttons()
+        else:
+            print(f"Error: Selection '{selection_name}' not found in tab '{current_tab}'")
 
     def show_frame_context_menu(self, pos):
         self.context_menu_open = True
@@ -973,8 +999,9 @@ class SelectSetToolWindow(QtWidgets.QWidget):
 
     def update_selection_color(self, selection_name, color):
         selection_dict = self.get_selection_dict()
-        if selection_name in selection_dict['selections']:
-            selection_dict['selections'][selection_name]['color'] = color
+        current_tab = self.current_tab
+        if current_tab in selection_dict and selection_name in selection_dict[current_tab]:
+            selection_dict[current_tab][selection_name]['color'] = color
             self.save_selection_dict(selection_dict)
 
     def lighten_color(self, color, factor=1.2):
@@ -996,16 +1023,13 @@ class SelectSetToolWindow(QtWidgets.QWidget):
             if new_name and new_name != button.text():
                 old_name = button.text()
                 selection_dict = self.get_selection_dict()
+                current_tab = self.current_tab
 
-                # Check if the new name already exists in any tab
-                while any(new_name in tab_selections for tab_selections in selection_dict['tabs'].values()):
-                    new_name += "_1"
+                # Check if the new name already exists in the current tab
+                new_name = self.get_unique_selection_name(new_name, selection_dict[current_tab])
 
-                if old_name in selection_dict['selections']:
-                    selection_dict['selections'][new_name] = selection_dict['selections'].pop(old_name)
-                    for tab, selections in selection_dict['tabs'].items():
-                        if old_name in selections:
-                            selections[selections.index(old_name)] = new_name
+                if current_tab in selection_dict and old_name in selection_dict[current_tab]:
+                    selection_dict[current_tab][new_name] = selection_dict[current_tab].pop(old_name)
                     self.save_selection_dict(selection_dict)
 
                 button.setText(new_name)
@@ -1015,22 +1039,38 @@ class SelectSetToolWindow(QtWidgets.QWidget):
                 button.clicked.disconnect()
                 button.clicked.connect(lambda: self.select_objects(new_name, QtWidgets.QApplication.keyboardModifiers()))
 
+    def get_unique_selection_name(self, base_name, existing_selections):
+        if base_name not in existing_selections:
+            return base_name
+
+        counter = 1
+        while True:
+            if counter == 1:
+                new_name = f"{base_name}_1"
+            else:
+                new_name = f"{base_name}_{counter:02d}"
+            
+            if new_name not in existing_selections:
+                return new_name
+            
+            counter += 1
+
     def delete_selection_button(self, button):
         dialog = CustomDialog(self, "Delete Confirmation", (160, 80))
-        dialog.add_widget(QtWidgets.QLabel(f"Are you sure you want to <br> delete  <b>'{button.text()}'<b>? "))
+        dialog.add_widget(QtWidgets.QLabel(f"Are you sure you want to <br> delete <b><font color='#00ade6'>{button.text()}</font></b>? "))
         dialog.add_button_box()
 
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
             selection_name = button.text()
             selection_dict = self.get_selection_dict()
-            if selection_name in selection_dict['selections']:
-                del selection_dict['selections'][selection_name]
-                for tab, selections in selection_dict['tabs'].items():
-                    if selection_name in selections:
-                        selections.remove(selection_name)
+            current_tab = self.current_tab
+
+            if current_tab in selection_dict and selection_name in selection_dict[current_tab]:
+                del selection_dict[current_tab][selection_name]
                 self.save_selection_dict(selection_dict)
+
                 # Remove the button from the current tab
-                self.tabs[self.current_tab].remove(button)
+                self.tabs[current_tab].remove(button)
                 self.selectionButtonsLayout.removeWidget(button)
                 button.deleteLater()
 
@@ -1038,26 +1078,31 @@ class SelectSetToolWindow(QtWidgets.QWidget):
         if not hasattr(self, 'selectionButtonsLayout'):
             print("Error: selectionButtonsLayout not initialized")
             return
-
+        
         # Clear existing buttons
         for i in reversed(range(self.selectionButtonsLayout.count())):
             widget = self.selectionButtonsLayout.itemAt(i).widget()
             if widget:
                 widget.setParent(None)
-
+        
         # Add new buttons for the current tab
-        for button in self.tabs[self.current_tab]:
-            self.selectionButtonsLayout.addWidget(button)
+        if self.current_tab in self.tabs:
+            for button in self.tabs[self.current_tab]:
+                self.selectionButtonsLayout.addWidget(button)
+        
         maya_main_window().activateWindow()
     
-    # Database operations
+    # [Database operations]
     def save_selection(self):
-        dialog = CustomDialog(self, "Save Selection", (200, 160))
+        dialog = CustomDialog(self, "Save Selection", (200, 165))
         dialog.add_widget(QtWidgets.QLabel("Enter selection name:"))
         input_field = QtWidgets.QLineEdit()
         dialog.add_widget(input_field)
         dialog.add_widget(QtWidgets.QLabel("Select tab:"))
         tab_combo = QtWidgets.QComboBox()
+        view = tab_combo.view()
+        view.setSpacing(4)
+        tab_combo.setFixedHeight(28) 
         tab_combo.addItems(self.tabs.keys())
         tab_combo.setCurrentText(self.current_tab)
         dialog.add_widget(tab_combo)
@@ -1075,25 +1120,25 @@ class SelectSetToolWindow(QtWidgets.QWidget):
                 selection_dict = self.get_selection_dict()
 
                 # Ensure unique name across all tabs
-                while any(selection_name in tab_selections for tab_selections in selection_dict['tabs'].values()):
-                    selection_name += "_1"
+                new_name = self.get_unique_selection_name(selection_name, selection_dict[selected_tab])
 
-                # Update the selections dictionary
-                selection_dict['selections'][selection_name] = {
+                # Update the tab dictionary
+                if selected_tab not in selection_dict:
+                    selection_dict[selected_tab] = {}
+
+                # Get the next order number
+                next_order = max([data['order'] for data in selection_dict[selected_tab].values()], default=-1) + 1
+
+                # Add the new selection
+                selection_dict[selected_tab][new_name] = {
+                    'order': next_order,
                     'objects': current_selection,
                     'color': self.color_palette[0]  # Default color
                 }
 
-                # Update the tabs dictionary
-                if selected_tab not in selection_dict['tabs']:
-                    selection_dict['tabs'][selected_tab] = []
-                selection_dict['tabs'][selected_tab].append(selection_name)
-
                 self.save_selection_dict(selection_dict)
                 self.switch_tab(selected_tab)
-                self.add_selection_button(selection_name)
-
-                #cmds.inViewMessage(amg=f"Selection saved as '{selection_name}' in tab '{selected_tab}'", pos='midCenter', fade=True)
+                self.add_selection_button(new_name)
 
     def delete_selection(self, selection_name):
         selection_dict = self.get_selection_dict()
@@ -1122,14 +1167,12 @@ class SelectSetToolWindow(QtWidgets.QWidget):
 
     def select_objects(self, selection_name, modifiers):
         selection_dict = self.get_selection_dict()
-        
-        # Check if the selection exists
-        if selection_name in selection_dict['selections']:
-            objects = selection_dict['selections'][selection_name]['objects']
-            
-            # Ensure objects is a list
+        current_tab = self.current_tab
+
+        if current_tab in selection_dict and selection_name in selection_dict[current_tab]:
+            objects = selection_dict[current_tab][selection_name]['objects']
+
             if isinstance(objects, list):
-                # Check for Shift modifier to add to selection
                 if modifiers == QtCore.Qt.ShiftModifier:
                     cmds.select(objects, add=True)
                 else:
@@ -1138,7 +1181,7 @@ class SelectSetToolWindow(QtWidgets.QWidget):
                 cmds.warning(f"Invalid data for selection '{selection_name}'.")
         else:
             cmds.warning(f"Selection '{selection_name}' not found.")
-        
+
         maya_main_window().activateWindow()
     
     def get_selection_dict(self):
@@ -1146,65 +1189,31 @@ class SelectSetToolWindow(QtWidgets.QWidget):
             cmds.createNode('objectSet', name='defaultObjectSet')
         if not cmds.attributeQuery('selectToolData', node='defaultObjectSet', exists=True):
             cmds.addAttr('defaultObjectSet', longName='selectToolData', dataType='string')
-            return {'selections': {}, 'tabs': {}}
+            return {"1": {}}  # Initialize with a default tab
 
         data = cmds.getAttr('defaultObjectSet.selectToolData')
         if data:
             try:
-                ordered_dict = json.loads(data)
-                result_dict = {'selections': {}, 'tabs': {}}
-
-                # Process selections
-                if 'selections' in ordered_dict:
-                    for key, value in ordered_dict['selections'].items():
-                        if isinstance(value, dict) and 'objects' in value:
-                            result_dict['selections'][key] = value
-                        else:
-                            result_dict['selections'][key] = {'objects': value, 'color': None}
-
-                # Process tabs
-                if 'tabs' in ordered_dict:
-                    result_dict['tabs'] = ordered_dict['tabs']
-
-                return result_dict
+                return json.loads(data)
             except json.JSONDecodeError:
                 cmds.warning("Invalid data in selectToolData. Resetting.")
-                return {'selections': {}, 'tabs': {}}
-
-        return {'selections': {}, 'tabs': {}}
+                return {"1": {}}
+        return {"1": {}}
 
     def save_selection_dict(self, selection_dict):
-        ordered_dict = {
-            'selections': {
-                key: {
-                    'order': i,
-                    'objects': value['objects'],
-                    'color': value.get('color')
-                }
-                for i, (key, value) in enumerate(selection_dict['selections'].items())
-            },
-            'tabs': selection_dict['tabs']
-        }
-        cmds.setAttr('defaultObjectSet.selectToolData', json.dumps(ordered_dict), type='string')
+        cmds.setAttr('defaultObjectSet.selectToolData', json.dumps(selection_dict), type='string')
 
     def update_database_order(self):
         selection_dict = self.get_selection_dict()
-        new_order = {'selections': {}, 'tabs': selection_dict['tabs'].copy()}
+        current_tab = self.current_tab
 
-        # Update the order of selections in the current tab
-        new_order['tabs'][self.current_tab] = []
-        for button in self.tabs[self.current_tab]:
-            selection_name = button.text()
-            new_order['tabs'][self.current_tab].append(selection_name)
-            if selection_name in selection_dict['selections']:
-                new_order['selections'][selection_name] = selection_dict['selections'][selection_name]
+        if current_tab in selection_dict:
+            for i, button in enumerate(self.tabs[current_tab]):
+                selection_name = button.text()
+                if selection_name in selection_dict[current_tab]:
+                    selection_dict[current_tab][selection_name]['order'] = i
 
-        # Preserve other selections that are not in the current tab
-        for selection, data in selection_dict['selections'].items():
-            if selection not in new_order['selections']:
-                new_order['selections'][selection] = data
-
-        self.save_selection_dict(new_order)
+        self.save_selection_dict(selection_dict)
     
     def populate_existing_selections(self):
         selection_dict = self.get_selection_dict()
@@ -1216,18 +1225,25 @@ class SelectSetToolWindow(QtWidgets.QWidget):
             if widget:
                 widget.setParent(None)
                 widget.deleteLater()
-
+        
+        # Remove all existing tab buttons
+        for i in reversed(range(self.tabLayout.count() - 1)):
+            widget = self.tabLayout.itemAt(i).widget()
+            if isinstance(widget, TabButton):
+                self.tabLayout.removeWidget(widget)
+                widget.deleteLater()
+        
         # Iterate through each tab and add buttons
-        for tab_name, selections in selection_dict['tabs'].items():
-            if tab_name not in self.tabs:
-                self.add_tab(tab_name)
+        for tab_name, selections in selection_dict.items():
+            self.add_tab(tab_name, switch=False)
             
-            self.tabs[tab_name] = []
-            for selection_name in selections:
-                if selection_name in selection_dict['selections']:
-                    button = self.create_selection_button(selection_name)
-                    self.tabs[tab_name].append(button)
-
+            # Sort selections by order
+            sorted_selections = sorted(selections.items(), key=lambda x: x[1]['order'])
+            
+            for selection_name, selection_data in sorted_selections:
+                button = self.create_selection_button(selection_name, selection_data)
+                self.tabs[tab_name].append(button)
+        
         # Switch to the first tab after populating
         if self.tabs:
             first_tab = next(iter(self.tabs))

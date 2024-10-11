@@ -527,6 +527,16 @@ class SelectSetToolWindow(QtWidgets.QWidget):
         event.acceptProposedAction()
         maya_main_window().activateWindow()'''
     
+    def dragEnterEvent(self, event):
+        if event.mimeData().text():
+            event.acceptProposedAction()
+        maya_main_window().activateWindow()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().text():
+            event.acceptProposedAction()
+        maya_main_window().activateWindow()
+
     def dropEvent(self, event):
         source_button = event.source()
         target_position = self.selectionButtonsLayout.indexOf(self.childAt(event.pos()))
@@ -1008,7 +1018,11 @@ class SelectSetToolWindow(QtWidgets.QWidget):
                 tab_action = move_menu.addAction(tab_name)
                 tab_action.triggered.connect(self.create_move_to_tab_function(button, tab_name))
         
-        action = menu.exec_(button.mapToGlobal(pos))
+        try:
+            action = menu.exec_(button.mapToGlobal(pos))
+        except:
+            action = menu.exec(button.mapToGlobal(pos))
+
         self.context_menu_open = False
         if self.fade_away_enabled:
             self.fade_timer.start(10)

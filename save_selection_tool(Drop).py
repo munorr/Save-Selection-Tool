@@ -1,8 +1,16 @@
 import maya.cmds as cmds
 import maya.mel as mel
 import maya.OpenMayaUI as omui
-from PySide2 import QtWidgets, QtCore, QtGui
-from shiboken2 import wrapInstance
+try:
+    from PySide6 import QtWidgets, QtCore, QtGui
+    from PySide6.QtCore import QTimer, QPropertyAnimation, QEasingCurve
+    from PySide6.QtGui import QColor
+    from shiboken6 import wrapInstance
+except ImportError:
+    from PySide2 import QtWidgets, QtCore, QtGui
+    from PySide2.QtCore import QTimer, QPropertyAnimation, QEasingCurve
+    from PySide2.QtGui import QColor
+    from shiboken2 import wrapInstance
 
 def create_save_selection_tool_button():
     button_command ="""
@@ -24,9 +32,14 @@ except ImportError:
 
 import json
 
+sst_version = 'v2_1_0'
+
 def maya_main_window():
     main_window_ptr = omui.MQtUtil.mainWindow()
-    return wrapInstance(int(main_window_ptr), QtWidgets.QWidget)
+    if QtCore.__version__.startswith('6'):
+        return wrapInstance(int(main_window_ptr), QtWidgets.QWidget)
+    else:
+        return wrapInstance(long(main_window_ptr), QtWidgets.QWidget)
 
 def hex_value(hex_color, factor):
     color = QColor(hex_color)
@@ -84,8 +97,17 @@ class CustomDialog(QtWidgets.QDialog):
         self.layout.setSpacing(10)
 
         # Add Enter key shortcut
-        self.enter_shortcut = QtWidgets.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Return), self)
-        self.enter_shortcut.activated.connect(self.accept)
+        
+        '''try:
+            self.enter_shortcut = QtWidgets.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Return), self)
+        except:
+            self.enter_shortcut = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Return), self)
+        self.enter_shortcut.activated.connect(self.accept)'''
+
+        try:
+            self.enter_shortcut = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Return), self)
+        except AttributeError:
+            self.enter_shortcut = QtWidgets.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Return), self)
 
     def add_widget(self, widget):
         self.layout.addWidget(widget)
@@ -123,12 +145,16 @@ class DraggableButton(QtWidgets.QPushButton):
         text_width = font_metrics.horizontalAdvance(text)
         return text_width + padding
 
+    '''def mousePressEvent(self, event):
+        if event.button() == QtCore.Qt.MiddleButton:
+            self.drag_start_position = event.pos()
+        super(DraggableButton, self).mousePressEvent(event)'''
+
     def mousePressEvent(self, event):
         if event.button() == QtCore.Qt.MiddleButton:
             self.drag_start_position = event.pos()
         super(DraggableButton, self).mousePressEvent(event)
         
-
     def mouseMoveEvent(self, event):
         if event.buttons() & QtCore.Qt.MiddleButton:
             if (event.pos() - self.drag_start_position).manhattanLength() < QtWidgets.QApplication.startDragDistance():
@@ -223,6 +249,7 @@ class SelectSetToolWindow(QtWidgets.QWidget):
         self.mainLayout = QtWidgets.QHBoxLayout(self)
         self.mainLayout.setContentsMargins(0, 0, 0, 0)
 
+        self.hor_mainLayout = QtWidgets.QVBoxLayout()
         self.frame = QtWidgets.QFrame(self)
         self.frame.setStyleSheet('''
             QFrame {
@@ -277,8 +304,13 @@ class SelectSetToolWindow(QtWidgets.QWidget):
         self.selectionButtonsLayout.setAlignment(QtCore.Qt.AlignLeft)
         frameLayout.addWidget(selectionButtonsFrame)
         
+        self.versionLabel = QtWidgets.QLabel(f'Save Selection Tool ({sst_version})')
+        self.versionLabel.setStyleSheet(f'''QLabel {{ color:rgba(160, 160, 160, .5) }}''')  
 
-        self.mainLayout.addWidget(self.frame)
+        self.hor_mainLayout.addWidget(self.frame)
+        self.hor_mainLayout.addWidget(self.versionLabel)
+
+        self.mainLayout.addLayout(self.hor_mainLayout)
         self.mainLayout.addStretch()
 
         self.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
@@ -468,7 +500,7 @@ class SelectSetToolWindow(QtWidgets.QWidget):
             self.oldPos = event.globalPos()
         maya_main_window().activateWindow()
 
-    def dragEnterEvent(self, event):
+    '''def dragEnterEvent(self, event):
         if event.mimeData().hasText():
             event.acceptProposedAction()
         maya_main_window().activateWindow()
@@ -492,6 +524,19 @@ class SelectSetToolWindow(QtWidgets.QWidget):
             # Update the selection dictionary
             self.update_database_order()
 
+        event.acceptProposedAction()
+        maya_main_window().activateWindow()'''
+    
+    def dropEvent(self, event):
+        source_button = event.source()
+        target_position = self.selectionButtonsLayout.indexOf(self.childAt(event.pos()))
+        if source_button and target_position != -1:
+            self.selectionButtonsLayout.removeWidget(source_button)
+            self.selectionButtonsLayout.insertWidget(target_position, source_button)
+            current_tab = self.current_tab
+            self.tabs[current_tab].remove(source_button)
+            self.tabs[current_tab].insert(target_position, source_button)
+            self.update_database_order()
         event.acceptProposedAction()
         maya_main_window().activateWindow()
 
@@ -1262,7 +1307,7 @@ def show_select_set_tool():
     
     select_set_tool_widget = SelectSetToolWindow(parent=maya_main_window())
     select_set_tool_widget.setObjectName("selectSetTool")
-    select_set_tool_widget.move(400, 780)
+    select_set_tool_widget.move(400, 770)
     select_set_tool_widget.show()
 
     maya_main_window()._select_set_tool_widget = select_set_tool_widget

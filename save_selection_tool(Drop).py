@@ -36,9 +36,9 @@ sst_version = 'v2_1_0'
 
 def maya_main_window():
     main_window_ptr = omui.MQtUtil.mainWindow()
-    if QtCore.__version__.startswith('6'):
+    try:
         return wrapInstance(int(main_window_ptr), QtWidgets.QWidget)
-    else:
+    except:
         return wrapInstance(long(main_window_ptr), QtWidgets.QWidget)
 
 def hex_value(hex_color, factor):
@@ -108,6 +108,8 @@ class CustomDialog(QtWidgets.QDialog):
             self.enter_shortcut = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Return), self)
         except AttributeError:
             self.enter_shortcut = QtWidgets.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Return), self)
+
+        self.enter_shortcut.activated.connect(self.accept)
 
     def add_widget(self, widget):
         self.layout.addWidget(widget)
